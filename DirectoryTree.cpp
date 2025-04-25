@@ -260,7 +260,7 @@ QString DirectoryTree::processDirectoryMarkdown(const QString &path, int depth)
         QString indent = QString("  ").repeated(depth + 1);
         
         if (fileInfo.isDir()) {
-            result += indent + "- " + fileInfo.fileName() + "/\n";
+            result += indent + "- " + fileInfo.fileName() + "\n";
             QString subResult = processDirectoryMarkdown(fileInfo.filePath(), depth + 1);
             if (!subResult.isEmpty()) {
                 result += subResult;

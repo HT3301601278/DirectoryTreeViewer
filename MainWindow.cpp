@@ -484,7 +484,6 @@ void MainWindow::exportToMarkdownFile(const QString &filePath)
     dirTree.setOutputFormat(OutputFormat::MARKDOWN);
     
     QTextStream out(&file);
-    out << "# " << QFileInfo(currentPath).fileName() << " 目录结构\n\n";
     out << dirTree.generateTree(currentPath);
     
     file.close();
