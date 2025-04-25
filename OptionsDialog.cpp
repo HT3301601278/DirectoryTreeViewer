@@ -92,6 +92,7 @@ OptionsDialog::OptionsDialog(const QString &currentIndent, int currentDepth,
     depthSpinBox->setRange(-1, 100);
     depthSpinBox->setValue(currentDepth);
     depthSpinBox->setSpecialValueText("不限制");
+    depthSpinBox->setMinimumWidth(100);
     
     QLabel *depthLabel = new QLabel("最大深度:");
     depthLabel->setStyleSheet("font-weight: bold;");

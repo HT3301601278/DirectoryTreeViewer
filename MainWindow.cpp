@@ -71,7 +71,6 @@ void MainWindow::setupUI()
     formatComboBox = new QComboBox(this);
     formatComboBox->addItem("文本（树状符号）", static_cast<int>(OutputFormat::TEXT));
     formatComboBox->addItem("Markdown", static_cast<int>(OutputFormat::MARKDOWN));
-    formatComboBox->addItem("JSON", static_cast<int>(OutputFormat::JSON));
     connect(formatComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::switchFormat);
     toolBar->addWidget(formatComboBox);
     
