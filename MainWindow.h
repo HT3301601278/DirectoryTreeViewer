@@ -18,6 +18,8 @@
 #include <QProgressBar>
 #include <QTreeView>
 #include <QStandardItemModel>
+#include <QSettings>
+#include <QListWidget>
 #include "DirectoryTree.h"
 
 class MainWindow : public QMainWindow
@@ -42,6 +44,14 @@ private slots:
     void exportToFile();
     void toggleView();
     void switchFormat(int index);
+    
+    // 书签和历史相关槽函数
+    void showBookmarkDialog();
+    void addBookmark();
+    void removeBookmark();
+    void selectBookmark(const QString &path);
+    void bookmarkItemClicked(QListWidgetItem *item);
+    void historyItemClicked(QListWidgetItem *item);
 
 private:
     QWidget *centralWidget;
@@ -58,11 +68,24 @@ private:
     QPushButton *exportButton;
     QPushButton *toggleViewButton;
     
+    // 书签和历史相关控件
+    QPushButton *bookmarkButton;
+    QMenu *bookmarkMenu;
+    QAction *addBookmarkAction;
+    QAction *manageBookmarksAction;
+    QListWidget *bookmarkList;
+    QListWidget *historyList;
+    
     DirectoryTree dirTree;
     QString currentPath;
     OutputFormat currentFormat;
     bool isHierarchicalView;
     QString lastExportPath;  // 记忆上次导出路径
+    
+    // 书签和历史记录数据
+    QStringList bookmarks;
+    QStringList recentHistory;
+    const int MAX_HISTORY = 10;
     
     int maxDepth = -1;           // 不限制深度
     QString indentChars = "    "; // 默认缩进
@@ -79,6 +102,15 @@ private:
     void exportToMarkdownFile(const QString &filePath);
     void exportToJsonFile(const QString &filePath);
     void updateProgressBar(bool visible, int value = 0);
+    
+    // 书签和历史相关方法
+    void setupBookmarkMenu();
+    void loadBookmarks();
+    void saveBookmarks();
+    void updateHistory(const QString &path);
+    void loadHistory();
+    void saveHistory();
+    void updateBookmarkMenu();
 };
 
 #endif // MAINWINDOW_H 

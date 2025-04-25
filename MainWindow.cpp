@@ -12,6 +12,8 @@
 #include <QHeaderView>
 #include <QDragLeaveEvent>
 #include <QDragMoveEvent>
+#include <QInputDialog>
+#include <QDialog>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), 
     currentFormat(OutputFormat::TEXT), isHierarchicalView(false), lastExportPath("")
@@ -19,7 +21,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
     setWindowTitle("目录树查看器");
     setMinimumSize(800, 600);
     
+    // 加载书签和历史记录
+    loadBookmarks();
+    loadHistory();
+    
     setupUI();
+    setupBookmarkMenu();
 }
 
 void MainWindow::setupUI()
@@ -61,6 +68,13 @@ void MainWindow::setupUI()
     toggleViewButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogListView));
     connect(toggleViewButton, &QPushButton::clicked, this, &MainWindow::toggleView);
     toolBar->addWidget(toggleViewButton);
+    
+    toolBar->addSeparator();
+    
+    // 书签按钮
+    bookmarkButton = new QPushButton("书签", this);
+    bookmarkButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    toolBar->addWidget(bookmarkButton);
     
     toolBar->addSeparator();
     
@@ -237,6 +251,9 @@ void MainWindow::showOptionsDialog()
 void MainWindow::generateTree(const QString &path)
 {
     currentPath = path;
+    
+    // 更新历史记录
+    updateHistory(path);
     
     // 配置DirectoryTree
     dirTree.setIndentChars(indentChars);
@@ -542,5 +559,367 @@ void MainWindow::updateProgressBar(bool visible, int value)
     progressBar->setVisible(visible);
     if (visible) {
         progressBar->setValue(value);
+    }
+}
+
+// 新增的书签和历史记录相关方法
+
+void MainWindow::setupBookmarkMenu()
+{
+    bookmarkMenu = new QMenu(this);
+    
+    // 添加到书签
+    addBookmarkAction = new QAction("添加当前目录到书签", this);
+    addBookmarkAction->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    connect(addBookmarkAction, &QAction::triggered, this, &MainWindow::addBookmark);
+    bookmarkMenu->addAction(addBookmarkAction);
+    
+    // 管理书签
+    manageBookmarksAction = new QAction("管理书签...", this);
+    manageBookmarksAction->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    connect(manageBookmarksAction, &QAction::triggered, this, &MainWindow::showBookmarkDialog);
+    bookmarkMenu->addAction(manageBookmarksAction);
+    
+    bookmarkMenu->addSeparator();
+    
+    // 添加历史记录菜单标题
+    QAction *historyTitle = new QAction("最近历史", this);
+    historyTitle->setEnabled(false);
+    bookmarkMenu->addAction(historyTitle);
+    
+    // 添加历史记录项
+    updateBookmarkMenu();
+    
+    // 设置书签按钮的菜单
+    bookmarkButton->setMenu(bookmarkMenu);
+}
+
+void MainWindow::loadBookmarks()
+{
+    QSettings settings("DirectoryTreeViewer", "Bookmarks");
+    bookmarks = settings.value("bookmarks").toStringList();
+}
+
+void MainWindow::saveBookmarks()
+{
+    QSettings settings("DirectoryTreeViewer", "Bookmarks");
+    settings.setValue("bookmarks", bookmarks);
+}
+
+void MainWindow::updateHistory(const QString &path)
+{
+    // 如果路径已在历史记录中，先移除旧的
+    recentHistory.removeAll(path);
+    
+    // 添加到历史记录的开头
+    recentHistory.prepend(path);
+    
+    // 限制历史记录数量
+    while (recentHistory.size() > MAX_HISTORY) {
+        recentHistory.removeLast();
+    }
+    
+    // 保存历史记录
+    saveHistory();
+    
+    // 更新书签菜单
+    updateBookmarkMenu();
+}
+
+void MainWindow::loadHistory()
+{
+    QSettings settings("DirectoryTreeViewer", "History");
+    recentHistory = settings.value("recentHistory").toStringList();
+    
+    // 限制历史记录数量
+    while (recentHistory.size() > MAX_HISTORY) {
+        recentHistory.removeLast();
+    }
+}
+
+void MainWindow::saveHistory()
+{
+    QSettings settings("DirectoryTreeViewer", "History");
+    settings.setValue("recentHistory", recentHistory);
+}
+
+void MainWindow::updateBookmarkMenu()
+{
+    // 清除现有的书签和历史菜单项，但保留固定的前三项（添加书签、管理书签、分隔符和历史标题）
+    QList<QAction*> actions = bookmarkMenu->actions();
+    int fixedItems = 4; // 添加书签、管理书签、分隔符和历史标题
+    
+    while (actions.size() > fixedItems) {
+        bookmarkMenu->removeAction(actions.last());
+        actions.removeLast();
+    }
+    
+    // 添加书签到菜单
+    if (!bookmarks.isEmpty()) {
+        bookmarkMenu->addSeparator();
+        QAction *bookmarksTitle = new QAction("收藏的目录", this);
+        bookmarksTitle->setEnabled(false);
+        bookmarkMenu->addAction(bookmarksTitle);
+        
+        for (const QString &bookmark : bookmarks) {
+            QFileInfo fi(bookmark);
+            QAction *action = new QAction(fi.fileName(), this);
+            action->setToolTip(bookmark);
+            action->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
+            connect(action, &QAction::triggered, this, [this, bookmark]() {
+                selectBookmark(bookmark);
+            });
+            bookmarkMenu->addAction(action);
+        }
+    }
+    
+    // 添加历史记录到菜单
+    if (!recentHistory.isEmpty()) {
+        for (const QString &historyItem : recentHistory) {
+            QFileInfo fi(historyItem);
+            QAction *action = new QAction(fi.fileName(), this);
+            action->setToolTip(historyItem);
+            action->setIcon(style()->standardIcon(QStyle::SP_DirLinkIcon));
+            connect(action, &QAction::triggered, this, [this, historyItem]() {
+                selectBookmark(historyItem);
+            });
+            bookmarkMenu->addAction(action);
+        }
+    } else {
+        QAction *noHistoryAction = new QAction("无历史记录", this);
+        noHistoryAction->setEnabled(false);
+        bookmarkMenu->addAction(noHistoryAction);
+    }
+    
+    // 禁用"添加当前目录到书签"，如果当前没有选择目录
+    addBookmarkAction->setEnabled(!currentPath.isEmpty());
+}
+
+void MainWindow::addBookmark()
+{
+    if (currentPath.isEmpty()) {
+        return;
+    }
+    
+    // 检查是否已在书签中
+    if (bookmarks.contains(currentPath)) {
+        QMessageBox::information(this, "提示", "此目录已在书签中");
+        return;
+    }
+    
+    // 获取自定义名称（可选）
+    bool ok;
+    QFileInfo fi(currentPath);
+    QString defaultName = fi.fileName();
+    QString name = QInputDialog::getText(this, "添加书签", 
+                                        "请输入书签名称：", 
+                                        QLineEdit::Normal,
+                                        defaultName, &ok);
+    if (!ok || name.isEmpty()) {
+        return;
+    }
+    
+    // 添加到书签
+    bookmarks.append(currentPath);
+    saveBookmarks();
+    
+    // 更新书签菜单
+    updateBookmarkMenu();
+    
+    QMessageBox::information(this, "成功", "目录已添加到书签");
+}
+
+void MainWindow::removeBookmark()
+{
+    // 获取书签列表中当前选择的项
+    QListWidgetItem *item = bookmarkList->currentItem();
+    if (!item) {
+        return;
+    }
+    
+    QString path = item->data(Qt::UserRole).toString();
+    
+    // 从书签中移除
+    bookmarks.removeAll(path);
+    saveBookmarks();
+    
+    // 更新列表
+    delete item;
+    
+    // 更新书签菜单
+    updateBookmarkMenu();
+}
+
+void MainWindow::selectBookmark(const QString &path)
+{
+    QFileInfo fi(path);
+    if (!fi.exists() || !fi.isDir()) {
+        QMessageBox::warning(this, "错误", "目录不存在: " + path);
+        
+        // 如果是书签，询问是否要移除
+        if (bookmarks.contains(path)) {
+            if (QMessageBox::question(this, "错误", 
+                                    "此书签指向的目录不存在，是否要移除此书签？",
+                                    QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                bookmarks.removeAll(path);
+                saveBookmarks();
+                updateBookmarkMenu();
+            }
+        }
+        // 如果是历史记录，直接移除
+        else if (recentHistory.contains(path)) {
+            recentHistory.removeAll(path);
+            saveHistory();
+            updateBookmarkMenu();
+        }
+        
+        return;
+    }
+    
+    // 生成目录树
+    generateTree(path);
+}
+
+void MainWindow::showBookmarkDialog()
+{
+    // 创建书签管理对话框
+    QDialog dialog(this);
+    dialog.setWindowTitle("管理书签和历史记录");
+    dialog.setMinimumSize(600, 400);
+    
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dialog);
+    
+    // 创建选项卡
+    QTabWidget *tabWidget = new QTabWidget(&dialog);
+    
+    // 书签选项卡
+    QWidget *bookmarksTab = new QWidget();
+    QVBoxLayout *bookmarksLayout = new QVBoxLayout(bookmarksTab);
+    
+    bookmarkList = new QListWidget();
+    bookmarkList->setAlternatingRowColors(true);
+    bookmarkList->setIconSize(QSize(24, 24));
+    
+    // 填充书签列表
+    for (const QString &path : bookmarks) {
+        QFileInfo fi(path);
+        QListWidgetItem *item = new QListWidgetItem(fi.fileName());
+        item->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
+        item->setToolTip(path);
+        item->setData(Qt::UserRole, path);
+        bookmarkList->addItem(item);
+    }
+    
+    connect(bookmarkList, &QListWidget::itemDoubleClicked, this, &MainWindow::bookmarkItemClicked);
+    
+    bookmarksLayout->addWidget(bookmarkList);
+    
+    // 书签操作按钮
+    QHBoxLayout *bookmarkButtonsLayout = new QHBoxLayout();
+    
+    QPushButton *removeBookmarkButton = new QPushButton("删除书签");
+    removeBookmarkButton->setIcon(style()->standardIcon(QStyle::SP_DialogDiscardButton));
+    connect(removeBookmarkButton, &QPushButton::clicked, this, &MainWindow::removeBookmark);
+    
+    QPushButton *openBookmarkButton = new QPushButton("打开选中的书签");
+    openBookmarkButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+    connect(openBookmarkButton, &QPushButton::clicked, this, [this, &dialog]() {
+        QListWidgetItem *item = bookmarkList->currentItem();
+        if (item) {
+            dialog.accept();
+            selectBookmark(item->data(Qt::UserRole).toString());
+        }
+    });
+    
+    bookmarkButtonsLayout->addWidget(removeBookmarkButton);
+    bookmarkButtonsLayout->addWidget(openBookmarkButton);
+    
+    bookmarksLayout->addLayout(bookmarkButtonsLayout);
+    
+    // 历史记录选项卡
+    QWidget *historyTab = new QWidget();
+    QVBoxLayout *historyLayout = new QVBoxLayout(historyTab);
+    
+    historyList = new QListWidget();
+    historyList->setAlternatingRowColors(true);
+    historyList->setIconSize(QSize(24, 24));
+    
+    // 填充历史记录列表
+    for (const QString &path : recentHistory) {
+        QFileInfo fi(path);
+        QListWidgetItem *item = new QListWidgetItem(fi.fileName());
+        item->setIcon(style()->standardIcon(QStyle::SP_DirLinkIcon));
+        item->setToolTip(path);
+        item->setData(Qt::UserRole, path);
+        historyList->addItem(item);
+    }
+    
+    connect(historyList, &QListWidget::itemDoubleClicked, this, &MainWindow::historyItemClicked);
+    
+    historyLayout->addWidget(historyList);
+    
+    // 历史记录操作按钮
+    QHBoxLayout *historyButtonsLayout = new QHBoxLayout();
+    
+    QPushButton *clearHistoryButton = new QPushButton("清除历史记录");
+    clearHistoryButton->setIcon(style()->standardIcon(QStyle::SP_DialogDiscardButton));
+    connect(clearHistoryButton, &QPushButton::clicked, this, [this]() {
+        if (QMessageBox::question(this, "确认", 
+                                "确定要清除所有历史记录吗？",
+                                QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+            recentHistory.clear();
+            saveHistory();
+            historyList->clear();
+            updateBookmarkMenu();
+        }
+    });
+    
+    QPushButton *openHistoryButton = new QPushButton("打开选中的历史记录");
+    openHistoryButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+    connect(openHistoryButton, &QPushButton::clicked, this, [this, &dialog]() {
+        QListWidgetItem *item = historyList->currentItem();
+        if (item) {
+            dialog.accept();
+            selectBookmark(item->data(Qt::UserRole).toString());
+        }
+    });
+    
+    historyButtonsLayout->addWidget(clearHistoryButton);
+    historyButtonsLayout->addWidget(openHistoryButton);
+    
+    historyLayout->addLayout(historyButtonsLayout);
+    
+    // 添加选项卡到选项卡控件
+    tabWidget->addTab(bookmarksTab, "收藏的目录");
+    tabWidget->addTab(historyTab, "历史记录");
+    
+    mainLayout->addWidget(tabWidget);
+    
+    // 底部按钮
+    QHBoxLayout *bottomButtonsLayout = new QHBoxLayout();
+    QPushButton *closeButton = new QPushButton("关闭");
+    closeButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    
+    bottomButtonsLayout->addStretch();
+    bottomButtonsLayout->addWidget(closeButton);
+    
+    mainLayout->addLayout(bottomButtonsLayout);
+    
+    // 显示对话框
+    dialog.exec();
+}
+
+void MainWindow::bookmarkItemClicked(QListWidgetItem *item)
+{
+    if (item) {
+        selectBookmark(item->data(Qt::UserRole).toString());
+    }
+}
+
+void MainWindow::historyItemClicked(QListWidgetItem *item)
+{
+    if (item) {
+        selectBookmark(item->data(Qt::UserRole).toString());
     }
 } 
