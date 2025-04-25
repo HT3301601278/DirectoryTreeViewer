@@ -153,7 +153,6 @@ OptionsDialog::OptionsDialog(const QString &currentIndent, int currentDepth,
     outputFormatComboBox = new QComboBox;
     outputFormatComboBox->addItem(QIcon(style()->standardPixmap(QStyle::SP_FileDialogDetailedView)), "文本（树状符号）", static_cast<int>(OutputFormat::TEXT));
     outputFormatComboBox->addItem(QIcon(style()->standardPixmap(QStyle::SP_FileDialogContentsView)), "Markdown", static_cast<int>(OutputFormat::MARKDOWN));
-    outputFormatComboBox->addItem(QIcon(style()->standardPixmap(QStyle::SP_FileDialogInfoView)), "JSON", static_cast<int>(OutputFormat::JSON));
     
     QLabel *formatLabel = new QLabel("输出格式:");
     formatLabel->setStyleSheet("font-weight: bold;");
