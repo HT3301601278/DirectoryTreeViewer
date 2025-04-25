@@ -314,8 +314,6 @@ QJsonArray DirectoryTree::processDirectoryJson(const QString &path, int depth)
             result.append(item);
         } else if (showFiles) {
             item["type"] = "file";
-            item["size"] = fileInfo.size();
-            item["modified"] = fileInfo.lastModified().toString(Qt::ISODate);
             result.append(item);
         }
     }

@@ -302,7 +302,7 @@ void MainWindow::createTreeViewModel(const QJsonObject &jsonTree)
     treeModel->clear();
     
     QStringList headers;
-    headers << "名称" << "类型" << "大小";
+    headers << "名称" << "类型" << "路径";
     treeModel->setHorizontalHeaderLabels(headers);
     
     // 添加根节点
@@ -317,7 +317,7 @@ void MainWindow::createTreeViewModel(const QJsonObject &jsonTree)
         
         QStandardItem *nameItem = new QStandardItem(childObj["name"].toString());
         QStandardItem *typeItem = new QStandardItem();
-        QStandardItem *sizeItem = new QStandardItem();
+        QStandardItem *pathItem = new QStandardItem();
         
         QString type = childObj["type"].toString();
         if (type == "directory") {
@@ -333,21 +333,12 @@ void MainWindow::createTreeViewModel(const QJsonObject &jsonTree)
             nameItem->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
             typeItem->setText("文件");
             
-            // 显示文件大小
-            qint64 size = childObj["size"].toVariant().toLongLong();
-            if (size < 1024) {
-                sizeItem->setText(QString("%1 B").arg(size));
-            } else if (size < 1024 * 1024) {
-                sizeItem->setText(QString("%1 KB").arg(size / 1024.0, 0, 'f', 2));
-            } else if (size < 1024 * 1024 * 1024) {
-                sizeItem->setText(QString("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 2));
-            } else {
-                sizeItem->setText(QString("%1 GB").arg(size / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2));
-            }
+            // 尺寸列显示路径
+            pathItem->setText(childObj["path"].toString());
         }
         
         QList<QStandardItem*> rowItems;
-        rowItems << nameItem << typeItem << sizeItem;
+        rowItems << nameItem << typeItem << pathItem;
         rootItem->appendRow(rowItems);
     }
     
@@ -377,17 +368,8 @@ void MainWindow::addTreeItem(QStandardItem *parent, const QJsonObject &item)
         nameItem->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
         typeItem->setText("文件");
         
-        // 显示文件大小
-        qint64 size = item["size"].toVariant().toLongLong();
-        if (size < 1024) {
-            sizeItem->setText(QString("%1 B").arg(size));
-        } else if (size < 1024 * 1024) {
-            sizeItem->setText(QString("%1 KB").arg(size / 1024.0, 0, 'f', 2));
-        } else if (size < 1024 * 1024 * 1024) {
-            sizeItem->setText(QString("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 2));
-        } else {
-            sizeItem->setText(QString("%1 GB").arg(size / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2));
-        }
+        // 尺寸列显示路径
+        sizeItem->setText(item["path"].toString());
     }
     
     QList<QStandardItem*> rowItems;
