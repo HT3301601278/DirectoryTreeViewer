@@ -1,0 +1,5 @@
+D:/C Project/DirectoryTreeViewer/cmake-build-debug/CMakeFiles/DirectoryTreeViewer.dir
+D:/C Project/DirectoryTreeViewer/cmake-build-debug/CMakeFiles/edit_cache.dir
+D:/C Project/DirectoryTreeViewer/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+D:/C Project/DirectoryTreeViewer/cmake-build-debug/CMakeFiles/DirectoryTreeViewer_autogen_timestamp_deps.dir
+D:/C Project/DirectoryTreeViewer/cmake-build-debug/CMakeFiles/DirectoryTreeViewer_autogen.dir
