@@ -62,6 +62,7 @@ private:
     QString currentPath;
     OutputFormat currentFormat;
     bool isHierarchicalView;
+    QString lastExportPath;  // 记忆上次导出路径
     
     int maxDepth = -1;           // 不限制深度
     QString indentChars = "    "; // 默认缩进

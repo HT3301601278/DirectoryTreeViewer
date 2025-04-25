@@ -14,7 +14,7 @@
 #include <QDragMoveEvent>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), 
-    currentFormat(OutputFormat::TEXT), isHierarchicalView(false)
+    currentFormat(OutputFormat::TEXT), isHierarchicalView(false), lastExportPath("")
 {
     setWindowTitle("目录树查看器");
     setMinimumSize(800, 600);
@@ -437,18 +437,29 @@ void MainWindow::exportToFile()
         }
     }
     
-    // 获取用户文档目录作为默认路径
-    QString documentsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     QFileInfo pathInfo(currentPath);
     QString defaultFileName = pathInfo.fileName() + "." + format;
     
+    // 使用上次的导出路径，如果没有则使用文档目录
+    QString startPath;
+    if (!lastExportPath.isEmpty()) {
+        QFileInfo lastPathInfo(lastExportPath);
+        startPath = lastPathInfo.absolutePath() + "/" + defaultFileName;
+    } else {
+        QString documentsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        startPath = documentsPath + "/" + defaultFileName;
+    }
+    
     QString filePath = QFileDialog::getSaveFileName(this, "导出目录树", 
-                                            documentsPath + "/" + defaultFileName, 
+                                            startPath, 
                                             filter);
     
     if (filePath.isEmpty()) {
         return;
     }
+    
+    // 保存本次导出路径
+    lastExportPath = filePath;
     
     if (format == "txt") {
         exportToTextFile(filePath);
