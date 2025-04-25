@@ -5,12 +5,25 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QStyle>
+#include <QStandardPaths>
+#include <QJsonDocument>
+#include <QFile>
+#include <QTimer>
+#include <QHeaderView>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), 
+    currentFormat(OutputFormat::TEXT), isHierarchicalView(false)
 {
     setWindowTitle("目录树查看器");
     setMinimumSize(800, 600);
     
+    setupUI();
+}
+
+void MainWindow::setupUI()
+{
     centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
     
@@ -30,6 +43,66 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dropAreaLabel->setCursor(Qt::PointingHandCursor);
     dropAreaLabel->installEventFilter(this);
     
+    // 创建进度条
+    progressBar = new QProgressBar(this);
+    progressBar->setRange(0, 100);
+    progressBar->setTextVisible(true);
+    progressBar->setFormat("扫描中 %p% (%v/%m)");
+    progressBar->setVisible(false);
+    mainLayout->addWidget(progressBar);
+    
+    // 创建工具栏
+    toolBar = new QToolBar(this);
+    toolBar->setMovable(false);
+    toolBar->setFloatable(false);
+    
+    // 视图切换按钮
+    toggleViewButton = new QPushButton("切换到层级视图", this);
+    toggleViewButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogListView));
+    connect(toggleViewButton, &QPushButton::clicked, this, &MainWindow::toggleView);
+    toolBar->addWidget(toggleViewButton);
+    
+    toolBar->addSeparator();
+    
+    // 格式选择
+    QLabel *formatLabel = new QLabel("输出格式: ");
+    toolBar->addWidget(formatLabel);
+    
+    formatComboBox = new QComboBox(this);
+    formatComboBox->addItem("文本（树状符号）", static_cast<int>(OutputFormat::TEXT));
+    formatComboBox->addItem("Markdown", static_cast<int>(OutputFormat::MARKDOWN));
+    formatComboBox->addItem("JSON", static_cast<int>(OutputFormat::JSON));
+    connect(formatComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::switchFormat);
+    toolBar->addWidget(formatComboBox);
+    
+    toolBar->addSeparator();
+    
+    // 复制按钮
+    copyButton = new QPushButton("复制到剪贴板", this);
+    copyButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    connect(copyButton, &QPushButton::clicked, this, &MainWindow::copyToClipboard);
+    toolBar->addWidget(copyButton);
+    
+    // 导出按钮和菜单
+    exportButton = new QPushButton("导出", this);
+    exportButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    
+    exportMenu = new QMenu(this);
+    exportMenu->addAction("导出为文本文件(.txt)", this, [this]() { exportToFile(); });
+    exportMenu->addAction("导出为Markdown文件(.md)", this, [this]() { exportToFile(); });
+    exportMenu->addAction("导出为JSON文件(.json)", this, [this]() { exportToFile(); });
+    
+    exportButton->setMenu(exportMenu);
+    toolBar->addWidget(exportButton);
+    
+    // 选项按钮
+    optionsButton = new QPushButton("选项", this);
+    optionsButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    connect(optionsButton, &QPushButton::clicked, this, &MainWindow::showOptionsDialog);
+    toolBar->addWidget(optionsButton);
+    
+    mainLayout->addWidget(toolBar);
+    
     // 创建文本编辑区
     treeTextEdit = new QTextEdit(this);
     treeTextEdit->setReadOnly(true);
@@ -38,21 +111,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     treeTextEdit->setPlaceholderText("这里将显示生成的目录树");
     mainLayout->addWidget(treeTextEdit, 1);
     
-    // 创建按钮区域
-    QHBoxLayout *buttonLayout = new QHBoxLayout();
-    copyButton = new QPushButton("复制到剪贴板", this);
-    copyButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
-    connect(copyButton, &QPushButton::clicked, this, &MainWindow::copyToClipboard);
+    // 创建树形视图
+    treeView = new QTreeView(this);
+    treeView->setAlternatingRowColors(true);
+    treeView->setAnimated(true);
+    treeView->setHeaderHidden(false);
+    treeView->setSortingEnabled(true);
+    treeView->setVisible(false);
     
-    optionsButton = new QPushButton("选项", this);
-    optionsButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    connect(optionsButton, &QPushButton::clicked, this, &MainWindow::showOptionsDialog);
+    treeModel = new QStandardItemModel(this);
+    QStringList headers;
+    headers << "名称" << "类型" << "大小";
+    treeModel->setHorizontalHeaderLabels(headers);
+    treeView->setModel(treeModel);
+    treeView->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     
-    buttonLayout->addWidget(optionsButton);
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(copyButton);
-    
-    mainLayout->addLayout(buttonLayout);
+    mainLayout->addWidget(treeView, 1);
     
     // 设置接受拖放
     setAcceptDrops(true);
@@ -62,7 +136,22 @@ void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
         event->acceptProposedAction();
-        dropAreaLabel->setStyleSheet("QLabel { background-color: #e0f0e0; border: 2px dashed #5a5; border-radius: 5px; padding: 30px; font-size: 16px; }");
+        dropAreaLabel->setStyleSheet("QLabel { background-color: #e0f0e0; border: 2px dashed #5a5; border-radius: 5px; padding: 30px; font-size: 16px; color: #2a2; }");
+        dropAreaLabel->setText("松手以添加文件夹");
+    }
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    dropAreaLabel->setStyleSheet("QLabel { background-color: #f0f0f0; border: 2px dashed #aaa; border-radius: 5px; padding: 30px; font-size: 16px; }");
+    dropAreaLabel->setText("将文件夹拖放到此处或点击选择文件夹");
+    event->accept();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
     }
 }
 
@@ -77,10 +166,21 @@ void MainWindow::dropEvent(QDropEvent *event)
     
     if (!fileInfo.isDir()) {
         QMessageBox::warning(this, "错误", "请拖放文件夹而不是文件");
+        dropAreaLabel->setStyleSheet("QLabel { background-color: #f0f0f0; border: 2px dashed #aaa; border-radius: 5px; padding: 30px; font-size: 16px; }");
+        dropAreaLabel->setText("将文件夹拖放到此处或点击选择文件夹");
+        return;
+    }
+    
+    if (!fileInfo.isReadable()) {
+        QMessageBox::warning(this, "错误", "无法读取该文件夹，可能是权限不足");
+        dropAreaLabel->setStyleSheet("QLabel { background-color: #f0f0f0; border: 2px dashed #aaa; border-radius: 5px; padding: 30px; font-size: 16px; }");
+        dropAreaLabel->setText("将文件夹拖放到此处或点击选择文件夹");
         return;
     }
     
     dropAreaLabel->setStyleSheet("QLabel { background-color: #f0f0f0; border: 2px dashed #aaa; border-radius: 5px; padding: 30px; font-size: 16px; }");
+    dropAreaLabel->setText("将文件夹拖放到此处或点击选择文件夹");
+    
     generateTree(path);
 }
 
@@ -100,6 +200,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::copyToClipboard()
 {
+    if (isHierarchicalView) {
+        QMessageBox::information(this, "提示", "层级视图模式下无法复制，请切换到文本视图");
+        return;
+    }
+    
     if (treeTextEdit->toPlainText().isEmpty()) {
         QMessageBox::information(this, "提示", "没有内容可复制");
         return;
@@ -117,66 +222,334 @@ void MainWindow::showOptionsDialog()
         maxDepth = dialog.getMaxDepth();
         showFiles = dialog.getShowFiles();
         showHidden = dialog.getShowHidden();
+        ignorePatterns = dialog.getIgnorePatterns();
+        sortType = dialog.getSortType();
+        currentFormat = dialog.getOutputFormat();
+        
+        formatComboBox->setCurrentIndex(static_cast<int>(currentFormat));
         
         // 如果已经有目录，重新生成树
-        if (!treeTextEdit->toPlainText().isEmpty()) {
-            QString path = treeTextEdit->property("currentPath").toString();
-            if (!path.isEmpty()) {
-                generateTree(path);
-            }
+        if (!currentPath.isEmpty()) {
+            updateDirectoryTree();
         }
     }
 }
 
 void MainWindow::generateTree(const QString &path)
 {
-    treeTextEdit->clear();
+    currentPath = path;
     
-    QFileInfo fileInfo(path);
-    QString rootName = fileInfo.fileName();
-    QString result = rootName + "\n" + generateDirectoryTree(path);
+    // 配置DirectoryTree
+    dirTree.setIndentChars(indentChars);
+    dirTree.setMaxDepth(maxDepth);
+    dirTree.setShowFiles(showFiles);
+    dirTree.setShowHidden(showHidden);
+    dirTree.setIgnorePatterns(ignorePatterns);
+    dirTree.setSortType(sortType);
+    dirTree.setOutputFormat(currentFormat);
     
-    treeTextEdit->setText(result);
-    treeTextEdit->setProperty("currentPath", path);
+    // 开始扫描目录
+    updateProgressBar(true, 0);
+    
+    // 使用计时器进行进度更新
+    QTimer *timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this, timer]() {
+        int total = dirTree.getTotalItems();
+        int processed = dirTree.getProcessedItems();
+        
+        if (total > 0) {
+            int percent = (processed * 100) / total;
+            updateProgressBar(true, percent);
+            progressBar->setFormat(QString("扫描中 %1% (%2/%3)").arg(percent).arg(processed).arg(total));
+        }
+        
+        if (processed >= total && total > 0) {
+            timer->stop();
+            timer->deleteLater();
+            updateProgressBar(false);
+            
+            // 显示完成消息
+            QMessageBox::information(this, "完成", QString("目录树生成完成，扫描了 %1 个项目").arg(processed));
+        }
+    });
+    
+    timer->start(100); // 每100毫秒更新一次
+    
+    // 更新目录树
+    updateDirectoryTree();
 }
 
-QString MainWindow::generateDirectoryTree(const QString &path, int depth)
+void MainWindow::updateDirectoryTree()
 {
-    QString result;
-    QDir dir(path);
-    
-    if (!showHidden) {
-        dir.setFilter(QDir::NoDotAndDotDot | QDir::AllEntries | QDir::NoSymLinks);
+    if (isHierarchicalView) {
+        // 层级视图模式
+        treeTextEdit->setVisible(false);
+        treeView->setVisible(true);
+        
+        QJsonObject jsonTree = dirTree.generateJsonTree(currentPath);
+        createTreeViewModel(jsonTree);
     } else {
-        dir.setFilter(QDir::NoDotAndDotDot | QDir::Hidden | QDir::AllEntries | QDir::NoSymLinks);
-    }
-    
-    dir.setSorting(QDir::DirsFirst | QDir::Name);
-    
-    QFileInfoList list = dir.entryInfoList();
-    
-    // 检查深度限制
-    if (maxDepth > 0 && depth >= maxDepth) {
-        return result;
-    }
-    
-    for (int i = 0; i < list.size(); ++i) {
-        QFileInfo fileInfo = list.at(i);
-        QString indent = QString(indentChars).repeated(depth + 1);
+        // 文本视图模式
+        treeTextEdit->setVisible(true);
+        treeView->setVisible(false);
         
-        // 是否最后一个项目
-        bool isLast = (i == list.size() - 1);
+        QString result = dirTree.generateTree(currentPath);
+        treeTextEdit->setText(result);
+    }
+}
+
+void MainWindow::createTreeViewModel(const QJsonObject &jsonTree)
+{
+    treeModel->clear();
+    
+    QStringList headers;
+    headers << "名称" << "类型" << "大小";
+    treeModel->setHorizontalHeaderLabels(headers);
+    
+    // 添加根节点
+    QStandardItem *rootItem = new QStandardItem(jsonTree["name"].toString());
+    rootItem->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
+    treeModel->appendRow(rootItem);
+    
+    // 添加子节点
+    QJsonArray children = jsonTree["children"].toArray();
+    for (const QJsonValue &child : children) {
+        QJsonObject childObj = child.toObject();
         
-        if (fileInfo.isDir()) {
-            result += indent + "├── " + fileInfo.fileName() + "\n";
-            QString subResult = generateDirectoryTree(fileInfo.filePath(), depth + 1);
-            if (!subResult.isEmpty()) {
-                result += subResult;
+        QStandardItem *nameItem = new QStandardItem(childObj["name"].toString());
+        QStandardItem *typeItem = new QStandardItem();
+        QStandardItem *sizeItem = new QStandardItem();
+        
+        QString type = childObj["type"].toString();
+        if (type == "directory") {
+            nameItem->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
+            typeItem->setText("文件夹");
+            
+            // 递归添加子目录
+            QJsonArray subChildren = childObj["children"].toArray();
+            for (const QJsonValue &subChild : subChildren) {
+                addTreeItem(nameItem, subChild.toObject());
             }
-        } else if (showFiles) {
-            result += indent + "├── " + fileInfo.fileName() + "\n";
+        } else {
+            nameItem->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
+            typeItem->setText("文件");
+            
+            // 显示文件大小
+            qint64 size = childObj["size"].toVariant().toLongLong();
+            if (size < 1024) {
+                sizeItem->setText(QString("%1 B").arg(size));
+            } else if (size < 1024 * 1024) {
+                sizeItem->setText(QString("%1 KB").arg(size / 1024.0, 0, 'f', 2));
+            } else if (size < 1024 * 1024 * 1024) {
+                sizeItem->setText(QString("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 2));
+            } else {
+                sizeItem->setText(QString("%1 GB").arg(size / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2));
+            }
+        }
+        
+        QList<QStandardItem*> rowItems;
+        rowItems << nameItem << typeItem << sizeItem;
+        rootItem->appendRow(rowItems);
+    }
+    
+    treeView->expandAll();
+    treeView->resizeColumnToContents(0);
+    treeView->resizeColumnToContents(1);
+    treeView->resizeColumnToContents(2);
+}
+
+void MainWindow::addTreeItem(QStandardItem *parent, const QJsonObject &item)
+{
+    QStandardItem *nameItem = new QStandardItem(item["name"].toString());
+    QStandardItem *typeItem = new QStandardItem();
+    QStandardItem *sizeItem = new QStandardItem();
+    
+    QString type = item["type"].toString();
+    if (type == "directory") {
+        nameItem->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
+        typeItem->setText("文件夹");
+        
+        // 递归添加子目录
+        QJsonArray children = item["children"].toArray();
+        for (const QJsonValue &child : children) {
+            addTreeItem(nameItem, child.toObject());
+        }
+    } else {
+        nameItem->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
+        typeItem->setText("文件");
+        
+        // 显示文件大小
+        qint64 size = item["size"].toVariant().toLongLong();
+        if (size < 1024) {
+            sizeItem->setText(QString("%1 B").arg(size));
+        } else if (size < 1024 * 1024) {
+            sizeItem->setText(QString("%1 KB").arg(size / 1024.0, 0, 'f', 2));
+        } else if (size < 1024 * 1024 * 1024) {
+            sizeItem->setText(QString("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 2));
+        } else {
+            sizeItem->setText(QString("%1 GB").arg(size / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2));
         }
     }
     
-    return result;
+    QList<QStandardItem*> rowItems;
+    rowItems << nameItem << typeItem << sizeItem;
+    parent->appendRow(rowItems);
+}
+
+void MainWindow::exportToFile()
+{
+    if (treeTextEdit->toPlainText().isEmpty() && !isHierarchicalView) {
+        QMessageBox::information(this, "提示", "没有内容可导出");
+        return;
+    }
+    
+    QAction *action = qobject_cast<QAction*>(sender());
+    QString format;
+    QString filter;
+    
+    if (action) {
+        QString actionText = action->text();
+        if (actionText.contains(".txt")) {
+            format = "txt";
+            filter = "文本文件 (*.txt)";
+        } else if (actionText.contains(".md")) {
+            format = "md";
+            filter = "Markdown文件 (*.md)";
+        } else if (actionText.contains(".json")) {
+            format = "json";
+            filter = "JSON文件 (*.json)";
+        }
+    } else {
+        // 默认使用当前选择的格式
+        switch (currentFormat) {
+            case OutputFormat::MARKDOWN:
+                format = "md";
+                filter = "Markdown文件 (*.md)";
+                break;
+            case OutputFormat::JSON:
+                format = "json";
+                filter = "JSON文件 (*.json)";
+                break;
+            case OutputFormat::TEXT:
+            default:
+                format = "txt";
+                filter = "文本文件 (*.txt)";
+                break;
+        }
+    }
+    
+    // 获取用户文档目录作为默认路径
+    QString documentsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    QFileInfo pathInfo(currentPath);
+    QString defaultFileName = pathInfo.fileName() + "." + format;
+    
+    QString filePath = QFileDialog::getSaveFileName(this, "导出目录树", 
+                                            documentsPath + "/" + defaultFileName, 
+                                            filter);
+    
+    if (filePath.isEmpty()) {
+        return;
+    }
+    
+    if (format == "txt") {
+        exportToTextFile(filePath);
+    } else if (format == "md") {
+        exportToMarkdownFile(filePath);
+    } else if (format == "json") {
+        exportToJsonFile(filePath);
+    }
+}
+
+void MainWindow::exportToTextFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "错误", "无法创建文件");
+        return;
+    }
+    
+    OutputFormat originalFormat = currentFormat;
+    dirTree.setOutputFormat(OutputFormat::TEXT);
+    
+    QTextStream out(&file);
+    out << dirTree.generateTree(currentPath);
+    
+    file.close();
+    
+    dirTree.setOutputFormat(originalFormat);
+    QMessageBox::information(this, "成功", "目录树已导出为文本文件");
+}
+
+void MainWindow::exportToMarkdownFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "错误", "无法创建文件");
+        return;
+    }
+    
+    OutputFormat originalFormat = currentFormat;
+    dirTree.setOutputFormat(OutputFormat::MARKDOWN);
+    
+    QTextStream out(&file);
+    out << "# " << QFileInfo(currentPath).fileName() << " 目录结构\n\n";
+    out << dirTree.generateTree(currentPath);
+    
+    file.close();
+    
+    dirTree.setOutputFormat(originalFormat);
+    QMessageBox::information(this, "成功", "目录树已导出为Markdown文件");
+}
+
+void MainWindow::exportToJsonFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "错误", "无法创建文件");
+        return;
+    }
+    
+    QJsonObject jsonTree = dirTree.generateJsonTree(currentPath);
+    QJsonDocument doc(jsonTree);
+    
+    file.write(doc.toJson(QJsonDocument::Indented));
+    file.close();
+    
+    QMessageBox::information(this, "成功", "目录树已导出为JSON文件");
+}
+
+void MainWindow::toggleView()
+{
+    isHierarchicalView = !isHierarchicalView;
+    
+    if (isHierarchicalView) {
+        toggleViewButton->setText("切换到文本视图");
+        toggleViewButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    } else {
+        toggleViewButton->setText("切换到层级视图");
+        toggleViewButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogListView));
+    }
+    
+    if (!currentPath.isEmpty()) {
+        updateDirectoryTree();
+    }
+}
+
+void MainWindow::switchFormat(int index)
+{
+    currentFormat = static_cast<OutputFormat>(index);
+    dirTree.setOutputFormat(currentFormat);
+    
+    if (!currentPath.isEmpty() && !isHierarchicalView) {
+        QString result = dirTree.generateTree(currentPath);
+        treeTextEdit->setText(result);
+    }
+}
+
+void MainWindow::updateProgressBar(bool visible, int value)
+{
+    progressBar->setVisible(visible);
+    if (visible) {
+        progressBar->setValue(value);
+    }
 } 
