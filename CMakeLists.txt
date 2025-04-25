@@ -6,24 +6,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt5 COMPONENTS Widgets PrintSupport REQUIRED)
+find_package(Qt5 COMPONENTS Widgets REQUIRED)
 
-add_executable(DirectoryTreeViewer 
-    main.cpp 
-    MainWindow.cpp 
-    MainWindow.h 
-    DirectoryTree.cpp 
-    DirectoryTree.h 
-    OptionsDialog.cpp 
-    OptionsDialog.h
-    TreeNode.cpp
-    TreeNode.h
-    TreeModel.cpp
-    TreeModel.h
-    DirectoryScanner.cpp
-    DirectoryScanner.h
-    ExportDialog.cpp
-    ExportDialog.h
-)
+add_executable(DirectoryTreeViewer main.cpp MainWindow.cpp MainWindow.h DirectoryTree.cpp DirectoryTree.h OptionsDialog.cpp OptionsDialog.h)
 
-target_link_libraries(DirectoryTreeViewer PRIVATE Qt5::Widgets Qt5::PrintSupport)
+target_link_libraries(DirectoryTreeViewer PRIVATE Qt5::Widgets)
