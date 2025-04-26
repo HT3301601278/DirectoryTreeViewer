@@ -8,6 +8,17 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
 
-add_executable(DirectoryTreeViewer main.cpp MainWindow.cpp MainWindow.h DirectoryTree.cpp DirectoryTree.h OptionsDialog.cpp OptionsDialog.h)
+add_executable(DirectoryTreeViewer 
+    main.cpp 
+    MainWindow.cpp 
+    MainWindow.h 
+    DirectoryTree.cpp 
+    DirectoryTree.h 
+    OptionsDialog.cpp 
+    OptionsDialog.h
+    resources.qrc
+)
 
 target_link_libraries(DirectoryTreeViewer PRIVATE Qt5::Widgets)
+
+configure_file(favicon.ico ${CMAKE_BINARY_DIR}/favicon.ico COPYONLY)
