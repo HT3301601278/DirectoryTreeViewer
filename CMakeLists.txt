@@ -8,7 +8,7 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
 
-add_executable(DirectoryTreeViewer 
+add_executable(DirectoryTreeViewer WIN32
     main.cpp 
     MainWindow.cpp 
     MainWindow.h 
